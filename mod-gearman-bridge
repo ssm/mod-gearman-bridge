@@ -39,37 +39,108 @@ use warnings;
 
 use Gearman::Client;
 use Gearman::Worker;
+use MIME::Base64;
+use Crypt::Rijndael;
+use Memoize;
+
+my $AES_KEY_SIZE   = 32;
+my $AES_BLOCK_SIZE = 16;
+
+memoize('init_cipher');
 
 my $config = {
     src => {
-        job_servers => 'localhost:4730',
-        queue       => 'check_results'
+        job_servers => 'monitor.i.bitbit.net:4731',
+        queues =>
+            [ 'check_results_monitor2-osl2', 'check_results_monitor5-osl2' ]
     },
     dst => {
-        job_servers => 'localhost:4730',
-        queues =>
-            [ 'check_results_icinga1', 'check_results_icinga2' ]
-    }
+        job_servers => 'monitor.i.bitbit.net:4732',
+        queues      => ['check_results'],
+        }
+
 };
 
 # Set up the source and destination
 my $worker = Gearman::Worker->new;
 $worker->job_servers( $config->{src}->{job_servers} );
+### Got worker: $worker
 
 my $client = Gearman::Client->new;
 $client->job_servers( $config->{dst}->{job_servers} );
+### Got client: $client
 
-# Register function which will copy from one queue to the others.
-$worker->register_function(
-    'check_results' => sub {
-        my $self = shift;
-        ### Got: $self->arg
-        foreach my $queue ( @{ $config->{dst}->{queues} } ) {
-            ### Queue: $queue
-            ### Data: $self->arg
-            $client->dispatch_background( $queue, $self->arg );
-        }
-    }
-);
+foreach my $src_queue ( @{ $config->{src}->{queues} } ) {
+    ### src queue: $src_queue
+    $worker->register_function( $src_queue => \&send_to_dst_queue );
+}
 
 $worker->work;
+
+sub send_to_dst_queue {
+    my ($job) = @_;
+    foreach my $dst_queue ( @{ $config->{dst}->{queues} } ) {
+        ### dst queue: $dst_queue
+        ### dst data: $job->arg
+        $client->dispatch_background( $dst_queue, $job->arg );
+    }
+}
+
+sub init_cipher {
+    my ($tmp_key) = @_;
+
+    my $key = pad_key($tmp_key);
+    my $cipher = Crypt::Rijndael->new( $key, Crypt::Rijndael::MODE_ECB() );
+    return $cipher;
+}
+
+sub decrypt_task {
+    my ( $config, $task ) = @_;
+    my $cipher = init_cipher( $config->param('Key') );
+
+    my $encrypted        = decode_base64($task);
+    my $plaintext_padded = $cipher->decrypt($encrypted);
+    my $plaintext        = unpad_plaintext($plaintext_padded);
+    return $plaintext;
+}
+
+sub encrypt_task {
+    my ( $config, $task ) = @_;
+    my $cipher = init_cipher( $config->param('Key') );
+
+    my $plaintext = join( "\n", @{$task} );
+
+    my $encrypted      = $cipher->encrypt($plaintext);
+    my $base64_encoded = encode_base64($encrypted);
+    return $base64_encoded;
+}
+
+sub pad_plaintext {
+    my $plaintext = shift;
+
+    if ( length($plaintext) % $AES_BLOCK_SIZE != 0 ) {
+        $plaintext .= "\0"
+            x ( $AES_BLOCK_SIZE - ( length($plaintext) % $AES_BLOCK_SIZE ) );
+    }
+
+    return $plaintext;
+}
+
+sub pad_key {
+    my ($key) = @_;
+    if ( length($key) < $AES_KEY_SIZE ) {
+        $key .= "\0" x ( $AES_KEY_SIZE - ( length($key) ) );
+    }
+    elsif ( length($key) > $AES_KEY_SIZE ) {
+        die "Key is too long";
+    }
+    return $key;
+}
+
+sub unpad_plaintext {
+    my $plaintext = shift;
+
+    $/ = "\0";
+
+    return chomp($plaintext);
+}
