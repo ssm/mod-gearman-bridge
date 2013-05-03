@@ -37,8 +37,9 @@ along with gearman-bridge.  If not, see <http://www.gnu.org/licenses/>.
 use strict;
 use warnings;
 
-use Gearman::Client;
-use Gearman::Worker;
+use Gearman::XS qw(:constants);
+use Gearman::XS::Client;
+use Gearman::XS::Worker;
 use MIME::Base64;
 use Crypt::Rijndael;
 use Memoize;
@@ -61,28 +62,68 @@ my $config = {
 
 };
 
-# Set up the source and destination
-my $worker = Gearman::Worker->new;
-$worker->job_servers( $config->{src}->{job_servers} );
-### Got worker: $worker
+my $worker = init_worker($config);
+my $client = init_client($config);
 
-my $client = Gearman::Client->new;
-$client->job_servers( $config->{dst}->{job_servers} );
-### Got client: $client
-
-foreach my $src_queue ( @{ $config->{src}->{queues} } ) {
-    ### src queue: $src_queue
-    $worker->register_function( $src_queue => \&send_to_dst_queue );
+foreach my $queue ( @{ $config->{src}->{queues} } ) {
+    ### Adding function: $queue
+    $worker->add_function( $queue, 0, \&task_router, $config );
 }
 
-$worker->work;
+### Main loop
+while (1) {
+    $worker->work();
+}
+
+## Subroutines
+
+sub task_router {
+    my ($task) = @_;
+
+    my $workload = decrypt_task( $config, $task->workload() );
+
+    ### Task: $workload
+
+    if ($config->{dst}->{key}) {
+        ### Key is set for destination, encrypting
+        $workload = encrypt_task( $config, $workload );
+    }
+
+    send_to_dst_queue( $config, $workload );
+}
+
+sub init_worker {
+    my ($config) = @_;
+    my $worker = Gearman::XS::Worker->new();
+    my $servers = join( ',', $config->{src}->{job_servers} );
+    ### [worker] adding servers: $servers
+    my $ret = $worker->add_servers($servers);
+    if ( $ret != GEARMAN_SUCCESS ) {
+        printf( STDERR "%s\n", $worker->error() );
+        exit(1);
+    }
+    return $worker;
+}
+
+sub init_client {
+    my ($config) = @_;
+    my $client = Gearman::XS::Client->new;
+    my $servers = join( ',', $config->{dst}->{job_servers} );
+    ### [client] adding servers: $servers
+    my $ret = $client->add_servers($servers);
+    if ( $ret != GEARMAN_SUCCESS ) {
+        printf( STDERR "%s\n", $client->error() );
+        exit(1);
+    }
+    return $client;
+}
 
 sub send_to_dst_queue {
-    my ($job) = @_;
+    my ($config, $workload) = @_;
+    ### dst data: $workload
     foreach my $dst_queue ( @{ $config->{dst}->{queues} } ) {
         ### dst queue: $dst_queue
-        ### dst data: $job->arg
-        $client->dispatch_background( $dst_queue, $job->arg );
+        $client->do_background( $dst_queue, $workload );
     }
 }
 
@@ -96,20 +137,26 @@ sub init_cipher {
 
 sub decrypt_task {
     my ( $config, $task ) = @_;
-    my $cipher = init_cipher( $config->param('Key') );
+    my $cipher = init_cipher( $config->{src}->{key} );
 
-    my $encrypted        = decode_base64($task);
+    ### [decrypt_task] task: $task
+
+    my $encrypted = decode_base64( $task );
+
     my $plaintext_padded = $cipher->decrypt($encrypted);
-    my $plaintext        = unpad_plaintext($plaintext_padded);
+
+    my $plaintext = unpad_plaintext($plaintext_padded);
+
+    ### [decrypt_task] plain: $plaintext
+
     return $plaintext;
 }
 
 sub encrypt_task {
-    my ( $config, $task ) = @_;
-    my $cipher = init_cipher( $config->param('Key') );
+    my ( $config, $plaintext ) = @_;
+    my $cipher = init_cipher( $config->{dst}->{key} );
 
-    my $plaintext = join( "\n", @{$task} );
-
+    $plaintext = pad_plaintext($plaintext);
     my $encrypted      = $cipher->encrypt($plaintext);
     my $base64_encoded = encode_base64($encrypted);
     return $base64_encoded;
@@ -128,19 +175,21 @@ sub pad_plaintext {
 
 sub pad_key {
     my ($key) = @_;
+    ### Key candidate: $key
     if ( length($key) < $AES_KEY_SIZE ) {
         $key .= "\0" x ( $AES_KEY_SIZE - ( length($key) ) );
     }
     elsif ( length($key) > $AES_KEY_SIZE ) {
-        die "Key is too long";
+        $key = sprintf( '%.32s', $key );
     }
+    ### Key: $key
     return $key;
 }
 
 sub unpad_plaintext {
     my $plaintext = shift;
 
-    $/ = "\0";
+    $plaintext =~ s{ \0+$ }{ }x;
 
-    return chomp($plaintext);
+    return $plaintext;
 }
