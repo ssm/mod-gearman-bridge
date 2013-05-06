@@ -125,7 +125,7 @@ sub init_client {
 }
 
 sub send_to_dst_queue {
-    my ($config, $workload) = @_;
+    my ( $config, $workload ) = @_;
     ### dst data: $workload
     foreach my $dst_queue ( @{ $config->{dst}->{queues} } ) {
         ### dst queue: $dst_queue
@@ -147,7 +147,7 @@ sub decrypt_task {
 
     ### [decrypt_task] task: $task
 
-    my $encrypted = decode_base64( $task );
+    my $encrypted = decode_base64($task);
 
     my $plaintext_padded = $cipher->decrypt($encrypted);
 
