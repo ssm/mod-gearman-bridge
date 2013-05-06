@@ -71,8 +71,11 @@ foreach my $queue ( @{ $config->{src}->{queues} } ) {
 }
 
 ### Main loop
-while (1) {
-    $worker->work();
+while ( 1 ) {
+    my $ret = $worker->work();
+    if ($ret != GEARMAN_SUCCESS) {
+        printf(STDERR "%s\n", $worker->error());
+    }
 }
 
 ## Subroutines
