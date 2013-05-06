@@ -65,6 +65,8 @@ my $config = {
 my $worker = init_worker($config);
 my $client = init_client($config);
 
+$config->{parser} = init_parser();
+
 foreach my $queue ( @{ $config->{src}->{queues} } ) {
     ### Adding function: $queue
     $worker->add_function( $queue, 0, \&task_router, $config );
@@ -90,8 +92,23 @@ sub task_router {
         $workload = decrypt_task( $config, $workload );
     }
 
-    next unless check_workload($workload);
-    ### Task: $workload
+    if ( my $tokens = parse_workload( $config, $workload ) ) {
+        ### Parsed data: $tokens
+
+        if ($config->{dst}->{host_name_filter}) {
+            if ($tokens->{host_name} =~ $config->{dst}->{host_name_filter}) {
+                ### Matched host_name_filter
+            }
+            else {
+                ### Did not match host_name_filter
+                return;
+            }
+        }
+    }
+    else {
+        ### Unable to parse, skipping
+        return;
+    }
 
     if ( $config->{dst}->{key} ) {
         ### Encrypting
@@ -99,6 +116,31 @@ sub task_router {
     }
 
     send_to_dst_queue( $config, $workload );
+}
+
+sub parse_workload() {
+    my ( $config, $workload ) = @_;
+
+    if ( $workload =~ $config->{parser} ) {
+        my $lines = $/{Line};
+        my %tokens = map { $_->{Key} => $_->{Value} } @{$lines};
+        return \%tokens;
+    }
+    else {
+        return;
+    }
+}
+
+sub init_parser {
+    use Regexp::Grammars;
+    my $parser = qr{
+        <[Line]>+
+
+        <token: Key>   <MATCH= (\w+) >
+        <token: Value> <MATCH= (.*) >
+
+        <rule: Line>   <Key> = <Value>
+    }x;
 }
 
 sub init_worker {
