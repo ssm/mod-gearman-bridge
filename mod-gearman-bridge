@@ -190,15 +190,11 @@ sub decrypt_task {
     my ( $config, $task ) = @_;
     my $cipher = init_cipher( $config->{src}->{key} );
 
-    ### [decrypt_task] task: $task
-
     my $encrypted = decode_base64($task);
 
     my $plaintext_padded = $cipher->decrypt($encrypted);
 
     my $plaintext = unpad_plaintext($plaintext_padded);
-
-    ### [decrypt_task] plain: $plaintext
 
     return $plaintext;
 }
