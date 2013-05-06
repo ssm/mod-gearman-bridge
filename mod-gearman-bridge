@@ -43,47 +43,43 @@ use Gearman::XS::Worker;
 use MIME::Base64;
 use Crypt::Rijndael;
 use Memoize;
+use Config::Tiny;
 
 my $AES_KEY_SIZE   = 32;
 my $AES_BLOCK_SIZE = 16;
 
 memoize('init_cipher');
+memoize('init_parser');
+memoize('init_config');
 
-my $config = {
-    src => {
-        job_servers => 'monitor.i.bitbit.net:4731',
-        queues =>
-            [ 'check_results_monitor2-osl2', 'check_results_monitor5-osl2' ]
-    },
-    dst => {
-        job_servers => 'monitor.i.bitbit.net:4732',
-        queues      => ['check_results'],
-        }
-
-};
+my $config = init_config();
 
 my $worker = init_worker($config);
 my $client = init_client($config);
 
-$config->{parser} = init_parser();
+my $parser = init_parser();
 
-foreach my $queue ( @{ $config->{src}->{queues} } ) {
-    ### Adding function: $queue
-    $worker->add_function( $queue, 0, \&task_router, $config );
-}
+### Config: $config
+
+### Queue: $config->{src}->{queue}
+my $args = { config => $config, parser => $parser };
+$worker->add_function( $config->{src}->{queue}, 0, \&task_router, \$args );
 
 ### Main loop
 while ( 1 ) {
     my $ret = $worker->work();
-    if ($ret != GEARMAN_SUCCESS) {
-        printf(STDERR "%s\n", $worker->error());
+    if ( $ret != GEARMAN_SUCCESS ) {
+        printf( STDERR "%s\n", $worker->error() );
     }
 }
 
 ## Subroutines
 
 sub task_router {
-    my ($task) = @_;
+    my ( $task, $args ) = @_;
+
+    my $parser = init_parser();
+    my $config = init_config();
 
     my $workload = $task->workload();
 
@@ -92,22 +88,28 @@ sub task_router {
         $workload = decrypt_task( $config, $workload );
     }
 
-    if ( my $tokens = parse_workload( $config, $workload ) ) {
-        ### Parsed data: $tokens
+    my $tokens = parse_workload( $parser, $workload );
 
-        if ($config->{dst}->{host_name_filter}) {
-            if ($tokens->{host_name} =~ $config->{dst}->{host_name_filter}) {
-                ### Matched host_name_filter
-            }
-            else {
-                ### Did not match host_name_filter
-                return;
-            }
-        }
-    }
-    else {
-        ### Unable to parse, skipping
+    if (! $tokens ) {
+        ### Unable to parse
         return;
+    }
+
+    if ( ! $tokens->{host_name} ) {
+        ### Parsed data does not contain host_name
+        return;
+    }
+
+    ### Parsed data: $tokens
+
+    if ( $config->{filters}->{host_name} ) {
+        if ( $tokens->{host_name} =~ $config->{filters}->{host_name} ) {
+            ### Matched host_name filter: $config->{filters}->{host_name}
+        }
+        else {
+            ### Did not match host_name filter
+            return;
+        }
     }
 
     if ( $config->{dst}->{key} ) {
@@ -115,13 +117,14 @@ sub task_router {
         $workload = encrypt_task( $config, $workload );
     }
 
-    send_to_dst_queue( $config, $workload );
+    ### Sending to dst queue: sprintf("%s@%s", $config->{dst}->{queue}, $config->{dst}->{server})
+    $client->do_background( $config->{dst}->{queue}, $workload );
 }
 
 sub parse_workload() {
-    my ( $config, $workload ) = @_;
+    my ( $parser, $workload ) = @_;
 
-    if ( $workload =~ $config->{parser} ) {
+    if ( $workload =~ $parser ) {
         my $lines = $/{Line};
         my %tokens = map { $_->{Key} => $_->{Value} } @{$lines};
         return \%tokens;
@@ -129,6 +132,14 @@ sub parse_workload() {
     else {
         return;
     }
+}
+
+sub init_config {
+    my $config_file = 'mod-gearman-bridge.conf';
+    my $config      = Config::Tiny->read($config_file)
+        or die( Config::Tiny->errstr );
+
+    return $config;
 }
 
 sub init_parser {
@@ -145,10 +156,10 @@ sub init_parser {
 
 sub init_worker {
     my ($config) = @_;
-    my $worker = Gearman::XS::Worker->new();
-    my $servers = join( ',', $config->{src}->{job_servers} );
-    ### [worker] adding servers: $servers
-    my $ret = $worker->add_servers($servers);
+    my $worker   = Gearman::XS::Worker->new();
+    my $server   = $config->{src}->{server};
+    ### [worker] adding server: $server
+    my $ret = $worker->add_servers($server);
     if ( $ret != GEARMAN_SUCCESS ) {
         printf( STDERR "%s\n", $worker->error() );
         exit(1);
@@ -158,24 +169,15 @@ sub init_worker {
 
 sub init_client {
     my ($config) = @_;
-    my $client = Gearman::XS::Client->new;
-    my $servers = join( ',', $config->{dst}->{job_servers} );
-    ### [client] adding servers: $servers
-    my $ret = $client->add_servers($servers);
+    my $client   = Gearman::XS::Client->new;
+    my $server   = $config->{dst}->{server};
+    ### [client] adding server: $server
+    my $ret = $client->add_servers($server);
     if ( $ret != GEARMAN_SUCCESS ) {
         printf( STDERR "%s\n", $client->error() );
         exit(1);
     }
     return $client;
-}
-
-sub send_to_dst_queue {
-    my ( $config, $workload ) = @_;
-    ### dst data: $workload
-    foreach my $dst_queue ( @{ $config->{dst}->{queues} } ) {
-        ### dst queue: $dst_queue
-        $client->do_background( $dst_queue, $workload );
-    }
 }
 
 sub init_cipher {
