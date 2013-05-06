@@ -80,12 +80,18 @@ while (1) {
 sub task_router {
     my ($task) = @_;
 
-    my $workload = decrypt_task( $config, $task->workload() );
+    my $workload = $task->workload();
 
+    if ( $config->{src}->{key} ) {
+        ### Decrypting
+        $workload = decrypt_task( $config, $workload );
+    }
+
+    next unless check_workload($workload);
     ### Task: $workload
 
-    if ($config->{dst}->{key}) {
-        ### Key is set for destination, encrypting
+    if ( $config->{dst}->{key} ) {
+        ### Encrypting
         $workload = encrypt_task( $config, $workload );
     }
 
