@@ -37,9 +37,8 @@ along with gearman-bridge. If not, see <http://www.gnu.org/licenses/>.
 use strict;
 use warnings;
 
-use Gearman::XS qw(:constants);
-use Gearman::XS::Client;
-use Gearman::XS::Worker;
+use Gearman::Client;
+use Gearman::Worker;
 use MIME::Base64;
 use Crypt::Rijndael;
 use Memoize;
@@ -73,26 +72,21 @@ my $CLIENT = init_client($CONFIG);
 
 ### Queue: $CONFIG->{src}->{queue}
 my $worker = init_worker($CONFIG);
-$worker->add_function( $CONFIG->{src}->{queue}, 0, \&task_router, 0 );
+$worker->register_function( $CONFIG->{src}->{queue} => \&task_router );
 
 ### Main loop
-while ( 1 ) {
-    my $ret = $worker->work();
-    if ( $ret != GEARMAN_SUCCESS ) {
-        printf( STDERR "%s\n", $worker->error() );
-    }
-}
+$worker->work() while 1;
 
 ## Subroutines
 
 sub task_router {
-    my ( $task, $args ) = @_;
+    my ( $task ) = @_;
 
     my $parser = $PARSER;
     my $config = $CONFIG;
     my $client = $CLIENT;
 
-    my $workload = $task->workload();
+    my $workload = $task->arg();
 
     if ( $config->{src}->{key} ) {
         ### Decrypting
@@ -129,7 +123,7 @@ sub task_router {
     }
 
     ### Sending to dst queue: sprintf("%s@%s", $config->{dst}->{queue}, $config->{dst}->{server})
-    $client->do_background( $config->{dst}->{queue}, $workload );
+    $client->dispatch_background( $config->{dst}->{queue}, $workload );
 }
 
 sub parse_workload() {
@@ -167,27 +161,19 @@ sub init_parser {
 
 sub init_worker {
     my ($config) = @_;
-    my $worker   = Gearman::XS::Worker->new();
+    my $worker   = Gearman::Worker->new();
     my $server   = $config->{src}->{server};
     ### [worker] adding server: $server
-    my $ret = $worker->add_servers($server);
-    if ( $ret != GEARMAN_SUCCESS ) {
-        printf( STDERR "%s\n", $worker->error() );
-        exit(1);
-    }
+    $worker->job_servers($server);
     return $worker;
 }
 
 sub init_client {
     my ($config) = @_;
-    my $client   = Gearman::XS::Client->new;
+    my $client   = Gearman::Client->new;
     my $server   = $config->{dst}->{server};
     ### [client] adding server: $server
-    my $ret = $client->add_servers($server);
-    if ( $ret != GEARMAN_SUCCESS ) {
-        printf( STDERR "%s\n", $client->error() );
-        exit(1);
-    }
+    $client->job_servers($server);
     return $client;
 }
 
