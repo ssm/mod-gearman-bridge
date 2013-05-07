@@ -62,7 +62,7 @@ my $parser = init_parser();
 ### Config: $config
 
 ### Queue: $config->{src}->{queue}
-$worker->add_function( $config->{src}->{queue}, 0, \&task_router, undef );
+$worker->add_function( $config->{src}->{queue}, 0, \&task_router, 0 );
 
 ### Main loop
 while ( 1 ) {
