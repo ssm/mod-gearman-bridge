@@ -44,13 +44,28 @@ use MIME::Base64;
 use Crypt::Rijndael;
 use Memoize;
 use Config::Tiny;
+use Getopt::Long::Descriptive;
 
 my $AES_KEY_SIZE   = 32;
 my $AES_BLOCK_SIZE = 16;
 
 memoize('init_cipher');
 
-my $CONFIG = init_config();
+my ( $opt, $usage ) = describe_options(
+    'mod-gearman-bridge %o <config-file>',
+    [ 'help|h',  'print usage message and exit' ],
+);
+
+my $config_file = shift;
+print( $usage->text ), exit if $opt->help;
+print( "Error: Need a configuration file argument\n", $usage->text ), exit
+    if !$config_file;
+print( "Error: Configuration file does not exist\n", $usage->text ), exit
+    if !-e $config_file;
+print( "Error: Configuration file is not readable\n", $usage->text ), exit
+    if !-r $config_file;
+
+my $CONFIG = init_config($config_file);
 my $PARSER = init_parser();
 my $CLIENT = init_client($CONFIG);
 
@@ -131,8 +146,8 @@ sub parse_workload() {
 }
 
 sub init_config {
-    my $config_file = 'mod-gearman-bridge.conf';
-    my $config      = Config::Tiny->read($config_file)
+    my ($config_file) = @_;
+    my $config = Config::Tiny->read($config_file)
         or die( Config::Tiny->errstr );
 
     return $config;
