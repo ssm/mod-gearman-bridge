@@ -52,13 +52,12 @@ memoize('init_cipher');
 
 my $CONFIG = init_config();
 my $PARSER = init_parser();
-
-my $worker = init_worker($CONFIG);
-my $client = init_client($CONFIG);
+my $CLIENT = init_client($CONFIG);
 
 ### Config: $CONFIG
 
 ### Queue: $CONFIG->{src}->{queue}
+my $worker = init_worker($CONFIG);
 $worker->add_function( $CONFIG->{src}->{queue}, 0, \&task_router, 0 );
 
 ### Main loop
@@ -76,6 +75,7 @@ sub task_router {
 
     my $parser = $PARSER;
     my $config = $CONFIG;
+    my $client = $CLIENT;
 
     my $workload = $task->workload();
 
