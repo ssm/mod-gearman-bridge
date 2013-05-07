@@ -49,20 +49,17 @@ my $AES_KEY_SIZE   = 32;
 my $AES_BLOCK_SIZE = 16;
 
 memoize('init_cipher');
-memoize('init_parser');
-memoize('init_config');
 
-my $config = init_config();
+my $CONFIG = init_config();
+my $PARSER = init_parser();
 
-my $worker = init_worker($config);
-my $client = init_client($config);
+my $worker = init_worker($CONFIG);
+my $client = init_client($CONFIG);
 
-my $parser = init_parser();
+### Config: $CONFIG
 
-### Config: $config
-
-### Queue: $config->{src}->{queue}
-$worker->add_function( $config->{src}->{queue}, 0, \&task_router, 0 );
+### Queue: $CONFIG->{src}->{queue}
+$worker->add_function( $CONFIG->{src}->{queue}, 0, \&task_router, 0 );
 
 ### Main loop
 while ( 1 ) {
@@ -77,8 +74,8 @@ while ( 1 ) {
 sub task_router {
     my ( $task, $args ) = @_;
 
-    my $parser = init_parser();
-    my $config = init_config();
+    my $parser = $PARSER;
+    my $config = $CONFIG;
 
     my $workload = $task->workload();
 
