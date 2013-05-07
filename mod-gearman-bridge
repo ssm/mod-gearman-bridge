@@ -2,7 +2,8 @@
 
 =head1 NAME
 
-gearman-bridge - Copy tasks from one queue to multiple others
+mod-gearman-bridge - Read events from one queue, and pass it to
+another if it passes a filter.
 
 =head1 AUTHOR
 
@@ -10,27 +11,26 @@ Stig Sandbeck Mathisen <ssm@redpill-linpro.com>
 
 =head1 SYNOPSIS
 
-This program listens on one queue, and copies all tasks to several
-other queues.
+This program connects to a gearman server, fetches mod-gearman events
+from one queue, filters them and passes them on to another queue.
 
-This is used to accept passive icinga check results on one queue, and
-send them to multiple icinga instances, each listening on several
-queues.
+If given keys, it will decrypt messages before filtering, and encrypt
+before transmitting.
 
 =head1 LICENCE
 
-gearman-bridge is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+mod-gearman-bridge is free software: you can redistribute it and/or
+modify it under the terms of the GNU General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
 
-gearman-bridge is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
+gearman-bridge is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with gearman-bridge.  If not, see <http://www.gnu.org/licenses/>.
+along with gearman-bridge. If not, see <http://www.gnu.org/licenses/>.
 
 =cut
 
